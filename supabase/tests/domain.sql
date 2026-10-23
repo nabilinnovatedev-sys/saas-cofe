@@ -1,0 +1,11 @@
+begin;
+select plan(7);
+select has_table('public','cafes','cafes existe');
+select has_table('public','orders','orders existe');
+select col_is_pk('public','orders','id','orders.id est la clé primaire');
+select has_index('public','orders','orders_cafe_id_idempotency_key_key','idempotence indexée et unique');
+select policies_are('public','orders',array['orders_select_staff'],'orders non exposées au public');
+select function_privs_are('public','create_public_order_internal',array['text','text','jsonb','text','uuid','text','text'],'anon',array[]::text[],'création interne inaccessible anon');
+select function_privs_are('public','transition_order',array['uuid','integer','order_status','text'],'authenticated',array['EXECUTE'],'transition disponible aux sessions et contrôlée côté fonction');
+select * from finish();
+rollback;

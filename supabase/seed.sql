@@ -1,0 +1,11 @@
+-- Démo facultative. Exécuter après avoir créé l’administrateur, en remplaçant
+-- l’UUID ci-dessous par son auth.users.id. Ne jamais exécuter en production sans revue.
+--
+-- do $$
+-- declare admin_id uuid := '00000000-0000-0000-0000-000000000000'; c uuid; cat uuid;
+-- begin
+--   insert into cafes(name,slug,status,currency) values('Café Atlas','cafe-atlas','draft','MAD') returning id into c;
+--   insert into cafe_branding(cafe_id,description) values(c,'Une halte gourmande au cœur des saveurs marocaines.');
+--   insert into menu_categories(cafe_id,name,sort_order) values(c,'Cafés',0) returning id into cat;
+--   insert into products(cafe_id,category_id,name,description,price_minor,sort_order) values(c,cat,'Cappuccino Atlas','Un cappuccino onctueux, signature du Café Atlas.',3200,0);
+-- end $$;

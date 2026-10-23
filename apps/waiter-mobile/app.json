@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Café Serveur",
+    "slug": "cafe-waiter",
+    "scheme": "cafe-waiter",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.cafewaiter",
+      "infoPlist": { "UIBackgroundModes": ["remote-notification"] }
+    },
+    "android": {
+      "package": "com.example.cafewaiter",
+      "permissions": ["POST_NOTIFICATIONS", "VIBRATE"],
+      "adaptiveIcon": { "backgroundColor": "#FFFDF8" }
+    },
+    "plugins": [
+      ["expo-notifications", { "color": "#8B5E3C", "defaultChannel": "orders" }]
+    ],
+    "extra": { "eas": { "projectId": "${EXPO_PUBLIC_EAS_PROJECT_ID}" } }
+  }
+}

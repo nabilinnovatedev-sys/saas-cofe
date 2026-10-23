@@ -1,0 +1,31 @@
+{
+  "name": "cafe-platform",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "@expo/require-utils": "58.0.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @cafe/web",
+    "dev:web": "npm run dev -w @cafe/web",
+    "dev:mobile": "npm run start -w @cafe/waiter-mobile",
+    "build": "npm run build -w @cafe/domain && npm run build -w @cafe/web",
+    "typecheck": "npm run build -w @cafe/domain && npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @cafe/domain",
+    "lint": "npm run lint --workspaces --if-present",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "overrides": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}
