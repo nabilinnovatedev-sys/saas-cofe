@@ -112,3 +112,4 @@ Un QR opaque par table est obligatoire pour envoyer; l’URL générale reste co
 
 Sans projet Supabase lié ni téléphone signé, le déploiement distant, l’envoi APNs/FCM, la lecture des receipts, le scan physique des QR et les tests E2E sur appareils ne peuvent pas être certifiés localement. Les composants et procédures nécessaires sont néanmoins inclus; aucun fallback silencieux vers des données simulées n’est utilisé.
 # saas-cofe
+# saas-cofe
