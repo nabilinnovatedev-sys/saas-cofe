@@ -1,0 +1,61 @@
+-- Transactional fixtures: no real customers, notifications or orders survive.
+begin;
+do $$
+declare
+  admin_id uuid; cafe_id uuid:=gen_random_uuid(); category_id uuid:=gen_random_uuid(); product_id uuid:=gen_random_uuid();
+  table_id uuid:=gen_random_uuid(); idem uuid:=gen_random_uuid(); result jsonb; retry jsonb; tracked jsonb;
+  slug text:='delivery-check-'||cafe_id::text; items jsonb; v_order_id uuid;
+begin
+  select user_id into admin_id from public.staff_profiles where role='platform_admin' and active limit 1;
+  if admin_id is null then raise exception 'Active admin required';end if;
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',admin_id,'role','authenticated')::text,true);
+  insert into public.cafes(id,name,slug) values(cafe_id,'Delivery check',slug);
+  insert into public.cafe_branding(cafe_id) values(cafe_id);
+  insert into public.menu_categories(id,cafe_id,name) values(category_id,cafe_id,'Delivery category');
+  insert into public.products(id,cafe_id,category_id,name,price_minor) values(product_id,cafe_id,category_id,'Delivery product',100);
+  insert into public.cafe_tables(id,cafe_id,label,qr_token_hash) values(table_id,cafe_id,'Table 07',encode(extensions.digest('test-token','sha256'),'hex'));
+  perform public.admin_publish_cafe(cafe_id);
+  items:=jsonb_build_array(jsonb_build_object('productId',product_id,'quantity',2,'expectedPriceMinor',100));
+  perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  result:=public.create_public_order_internal(slug,null,items,null,idem,repeat('a',64),'test-ip','delivery','0612345678',32,-9);
+  if result->>'error' is distinct from 'DELIVERY_DISABLED' then raise exception 'Delivery disabled guard: %',result;end if;
+  update public.cafes set delivery_enabled=true where id=cafe_id;
+  if public.public_get_menu(slug,null)#>>'{cafe,delivery_enabled}' is distinct from 'true' then raise exception 'Live delivery setting missing';end if;
+  result:=public.create_public_order_internal(slug,null,items,null,idem,repeat('a',64),'test-ip','delivery',null,32,-9);
+  if result->>'error' is distinct from 'INVALID_PHONE' then raise exception 'Phone guard: %',result;end if;
+  result:=public.create_public_order_internal(slug,null,items,null,idem,repeat('a',64),'test-ip','delivery','0612345678',null,-9);
+  if result->>'error' is distinct from 'LOCATION_REQUIRED' then raise exception 'Location guard: %',result;end if;
+  result:=public.create_public_order_internal(slug,null,items,null,idem,repeat('a',64),'test-ip','delivery','0612345678',91,-9);
+  if result->>'error' is distinct from 'LOCATION_REQUIRED' then raise exception 'Coordinate bounds: %',result;end if;
+  result:=public.create_public_order_internal(slug,null,items,null,idem,repeat('a',64),'test-ip','delivery','0612345678','NaN'::float8,-9);
+  if result->>'error' is distinct from 'LOCATION_REQUIRED' then raise exception 'NaN guard: %',result;end if;
+  result:=public.create_public_order_internal(slug,null,items,null,idem,repeat('a',64),'test-ip','delivery','+212 612-345678',32,-9);
+  if result->>'order_id' is null then raise exception 'Valid delivery failed: %',result;end if;
+  v_order_id:=(result->>'order_id')::uuid;
+  if not exists(select 1 from public.orders o where o.id=v_order_id and o.table_id is null and o.fulfillment_type='delivery' and o.customer_phone='+212612345678' and o.delivery_latitude=32 and o.delivery_longitude=-9 and o.total_minor=200) then raise exception 'Delivery not persisted correctly';end if;
+  if (select count(*) from public.notification_outbox n where n.order_id=v_order_id)<>1 then raise exception 'Outbox missing';end if;
+  retry:=public.create_public_order_internal(slug,null,items,null,idem,repeat('a',64),'test-ip','delivery','+212612345678',32,-9);
+  if retry->>'order_id' is distinct from result->>'order_id' or retry->>'idempotent' is distinct from 'true' then raise exception 'Idempotence failed';end if;
+  tracked:=public.track_public_order_internal(repeat('a',64));
+  if tracked->>'fulfillment_type' is distinct from 'delivery' or tracked ?| array['customer_phone','delivery_latitude','delivery_longitude'] then raise exception 'Tracking type/privacy failed';end if;
+  result:=public.create_public_order_internal(slug,'bad-token',items,null,gen_random_uuid(),repeat('b',64),'test-ip');
+  if result->>'error' is distinct from 'INVALID_TABLE' then raise exception 'Table validation regressed';end if;
+  result:=public.create_public_order_internal(slug,'test-token',items,null,gen_random_uuid(),repeat('b',64),'test-ip');
+  if result->>'order_id' is null then raise exception 'Dine-in order regressed: %',result;end if;
+  for i in 1..10 loop
+    result:=public.create_public_order_internal(slug,null,'[]'::jsonb,null,gen_random_uuid(),repeat('c',64),'rate-test','delivery','0612345678',32,-9);
+    if result->>'error' is distinct from 'INVALID_CART' then raise exception 'Unexpected rate-limit precondition: %',result;end if;
+  end loop;
+  result:=public.create_public_order_internal(slug,null,items,null,gen_random_uuid(),repeat('c',64),'rate-test','delivery','0612345678',32,-9);
+  if result->>'error' is distinct from 'RATE_LIMITED' then raise exception 'Delivery rate limit failed';end if;
+  if has_function_privilege('anon','public.create_public_order_internal(text,text,jsonb,text,uuid,text,text,text,text,double precision,double precision)','execute') then raise exception 'Anonymous direct RPC must be denied';end if;
+  execute 'set local role anon';
+  if exists(select 1 from public.orders o where o.id=v_order_id) then raise exception 'Anonymous RLS must hide order';end if;
+  execute 'reset role';
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',gen_random_uuid(),'role','authenticated')::text,true);
+  execute 'set local role authenticated';
+  if exists(select 1 from public.orders o where o.id=v_order_id) then raise exception 'Unassigned user must not see delivery details';end if;
+  execute 'reset role';
+end $$;
+rollback;
+select 'PASS: delivery switch, phone, location bounds, persistence, idempotence, tracking privacy, dine-in, rate limiting, privileges' as result;

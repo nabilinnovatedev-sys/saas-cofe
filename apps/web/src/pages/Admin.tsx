@@ -10,7 +10,7 @@ import {
   Send,
   Users,
 } from "lucide-react";
-import QRCode from "qrcode";
+import { orderQr } from "../lib/order-qr";
 import {
   Link,
   Navigate,
@@ -27,6 +27,9 @@ import {
   type OrderStatus,
 } from "@cafe/domain";
 import { invoke, supabase } from "../lib/supabase";
+import { MenuDesigner } from "../components/MenuDesigner";
+import { ImageDropzone } from "../components/ImageDropzone";
+import { menuImage } from "../components/MenuCatalog";
 
 type Cafe = {
   id: string;
@@ -210,7 +213,7 @@ export function AdminDashboard() {
               <div>
                 <strong>{order.public_ref}</strong>
                 <small>
-                  {order.cafes?.name} · {order.cafe_tables?.label}
+                  {order.cafes?.name} · {order.fulfillment_type === 'delivery' ? 'Livraison' : order.cafe_tables?.label}
                 </small>
               </div>
               <span className={`order-status ${order.status}`}>
@@ -319,7 +322,7 @@ function CafeLayout() {
     );
   const tabs = [
     ["apercu", "Aperçu"],
-    ["identite", "Identité"],
+    ["identite", "Design & templates"],
     ["menu", "Menu"],
     ["tables", "Tables & QR"],
     ["serveurs", "Serveurs"],
@@ -364,7 +367,7 @@ function CafeLayout() {
           element={<Overview cafe={cafe} reload={() => location.reload()} />}
         />
         <Route path="identite" element={<Identity cafe={cafe} />} />
-        <Route path="menu" element={<Menu cafe={cafe} />} />
+        <Route path="menu" element={<Menu cafe={cafe} showDesigner />} />
         <Route path="tables" element={<Tables cafe={cafe} />} />
         <Route path="serveurs" element={<Staff cafe={cafe} />} />
         <Route path="commandes" element={<Orders cafe={cafe} />} />
@@ -379,6 +382,68 @@ function CafeLayout() {
 }
 export function CafeWorkspace() {
   return <CafeLayout />;
+}
+
+export function StaffWorkspace() {
+  const [profile, setProfile] = useState<any>(null);
+  const [cafe, setCafe] = useState<Cafe | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return setError("Session introuvable.");
+      const profileResult = await supabase
+        .from("staff_profiles")
+        .select("*")
+        .eq("user_id", data.user.id)
+        .single();
+      if (profileResult.error || !profileResult.data?.cafe_id)
+        return setError("Profil employé introuvable.");
+      setProfile(profileResult.data);
+      const cafeResult = await supabase
+        .from("cafes")
+        .select("*")
+        .eq("id", profileResult.data.cafe_id)
+        .single();
+      if (cafeResult.error) return setError(cafeResult.error.message);
+      setCafe(cafeResult.data);
+    });
+  }, []);
+  if (error) return <main className="state-page error">{error}</main>;
+  if (!profile || !cafe)
+    return <main className="state-page">Chargement de votre espace…</main>;
+  return (
+    <div className="admin-shell">
+      <aside className="sidebar">
+        <div className="side-brand">
+          <Coffee /> <span>{cafe.name}</span>
+        </div>
+        <p className="muted">Espace employé</p>
+        <button
+          className="sidebar-logout"
+          onClick={async () => {
+            await supabase.auth.signOut();
+            location.href = "/connexion";
+          }}
+        >
+          <LogOut /> Déconnexion
+        </button>
+      </aside>
+      <main className="admin-main">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Catalogue</p>
+            <h1>{cafe.name}</h1>
+            <p>Les actions disponibles dépendent des permissions de votre compte.</p>
+          </div>
+        </header>
+        <Menu
+          cafe={cafe}
+          canManageCategories={profile.can_manage_categories}
+          canManageProducts={profile.can_manage_products}
+        />
+      </main>
+    </div>
+  );
 }
 
 function Overview({ cafe, reload }: { cafe: Cafe; reload: () => void }) {
@@ -435,180 +500,25 @@ function Overview({ cafe, reload }: { cafe: Cafe; reload: () => void }) {
   );
 }
 
-function Identity({ cafe }: { cafe: Cafe }) {
-  const [form, setForm] = useState<any>({
-    name: cafe.name,
-    slug: cafe.slug,
-    primary_color: "#8B5E3C",
-    secondary_color: "#557A64",
-    accent_color: "#D98C32",
-    description: "",
-    contact_phone: cafe.contact_phone || "",
-    contact_address: cafe.contact_address || "",
-  });
-  const [saved, setSaved] = useState("");
-  useEffect(() => {
-    supabase
-      .from("cafe_branding")
-      .select("*")
-      .eq("cafe_id", cafe.id)
-      .maybeSingle()
-      .then(({ data }) => data && setForm((f: any) => ({ ...f, ...data })));
-  }, [cafe.id]);
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    setSaved("");
-    const { name, slug, contact_phone, contact_address, ...branding } = form;
-    const a = await supabase
-      .from("cafes")
-      .update({
-        name,
-        slug: normalizeSlug(slug),
-        contact_phone: contact_phone || null,
-        contact_address: contact_address || null,
-      })
-      .eq("id", cafe.id);
-    const b = await supabase
-      .from("cafe_branding")
-      .upsert({ ...branding, cafe_id: cafe.id });
-    setSaved(
-      a.error?.message || b.error?.message || "Modifications enregistrées.",
-    );
-  }
-  async function upload(file: File) {
-    if (file.size > 2_000_000)
-      return setSaved("Le logo ne doit pas dépasser 2 Mo.");
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type))
-      return setSaved("Format autorisé : JPEG, PNG ou WebP.");
-    const path = `${cafe.id}/logo-${crypto.randomUUID()}.${file.name.split(".").pop()}`;
-    const { error } = await supabase.storage
-      .from("cafe-branding")
-      .upload(path, file);
-    if (error) return setSaved(error.message);
-    setForm({ ...form, logo_path: path });
-  }
-  return (
-    <section className="split-panel">
-      <form onSubmit={save} className="panel form-grid">
-        <div>
-          <p className="eyebrow">Identité & marque</p>
-          <h2>Votre univers visuel</h2>
-        </div>
-        <label>
-          Nom du café
-          <input
-            required
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-        </label>
-        <label>
-          Slug
-          <input
-            required
-            value={form.slug}
-            onChange={(e) => setForm({ ...form, slug: e.target.value })}
-          />
-        </label>
-        <label>
-          Description
-          <textarea
-            rows={4}
-            value={form.description || ""}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-          />
-        </label>
-        <label>
-          Logo
-          <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-          />
-        </label>
-        <div className="color-row">
-          <label>
-            Principale
-            <input
-              type="color"
-              value={form.primary_color}
-              onChange={(e) =>
-                setForm({ ...form, primary_color: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Téléphone
-            <input
-              type="tel"
-              value={form.contact_phone || ""}
-              onChange={(e) =>
-                setForm({ ...form, contact_phone: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Adresse
-            <input
-              value={form.contact_address || ""}
-              onChange={(e) =>
-                setForm({ ...form, contact_address: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Secondaire
-            <input
-              type="color"
-              value={form.secondary_color}
-              onChange={(e) =>
-                setForm({ ...form, secondary_color: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Accent
-            <input
-              type="color"
-              value={form.accent_color}
-              onChange={(e) =>
-                setForm({ ...form, accent_color: e.target.value })
-              }
-            />
-          </label>
-        </div>
-        {saved && <div className="alert info">{saved}</div>}
-        <button className="btn primary">Enregistrer</button>
-      </form>
-      <article
-        className="brand-preview"
-        style={
-          {
-            "--brand": form.primary_color,
-            "--secondary": form.secondary_color,
-          } as React.CSSProperties
-        }
-      >
-        <span>Aperçu</span>
-        <div className="preview-hero">
-          <Coffee />
-          <h2>{form.name}</h2>
-          <p>
-            {form.description ||
-              "Une halte gourmande au cœur des saveurs marocaines."}
-          </p>
-        </div>
-        <button>Voir le panier</button>
-      </article>
-    </section>
-  );
-}
-
-function Menu({ cafe }: { cafe: Cafe }) {
+const Identity = MenuDesigner;
+function Menu({
+  cafe,
+  showDesigner = false,
+  canManageCategories = true,
+  canManageProducts = true,
+}: {
+  cafe: Cafe;
+  showDesigner?: boolean;
+  canManageCategories?: boolean;
+  canManageProducts?: boolean;
+}) {
   const [categories, setCategories] = useState<any[]>([]),
     [products, setProducts] = useState<any[]>([]),
     [show, setShow] = useState<"category" | "product" | null>(null),
     [edit, setEdit] = useState<any>(null),
+    [editCategory, setEditCategory] = useState<any>(null),
+    [categoryImage, setCategoryImage] = useState<File | null>(null),
+    [productImage, setProductImage] = useState<File | null>(null),
     [message, setMessage] = useState("");
   async function load() {
     const [c, p] = await Promise.all([
@@ -632,19 +542,38 @@ function Menu({ cafe }: { cafe: Cafe }) {
   async function saveCategory(e: FormEvent) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget as HTMLFormElement);
-    await supabase.from("menu_categories").insert({
+    let image_path = editCategory?.image_path || null;
+    const image = categoryImage;
+    if (image?.size) {
+      if (image.size > 5_000_000) return setMessage("Image limitée à 5 Mo.");
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(image.type))
+        return setMessage("Image JPEG, PNG ou WebP uniquement.");
+      image_path = `${cafe.id}/category-${crypto.randomUUID()}.${image.name.split('.').pop()}`;
+      const uploaded = await supabase.storage
+        .from("product-images")
+        .upload(image_path, image);
+      if (uploaded.error) return setMessage(uploaded.error.message);
+    }
+    const payload = {
       cafe_id: cafe.id,
       name: fd.get("name"),
-      sort_order: categories.length,
-    });
+      image_path,
+      sort_order: editCategory?.sort_order ?? categories.length,
+    };
+    const result = editCategory
+      ? await supabase.from("menu_categories").update(payload).eq("id", editCategory.id)
+      : await supabase.from("menu_categories").insert(payload);
+    if (result.error) return setMessage(result.error.message);
     setShow(null);
+    setEditCategory(null);
+    setCategoryImage(null);
     load();
   }
   async function saveProduct(e: FormEvent) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget as HTMLFormElement);
     let photo_path = edit?.photo_path || null;
-    const photo = fd.get("photo") as File;
+    const photo = productImage;
     if (photo?.size) {
       if (photo.size > 5_000_000) return setMessage("Image limitée à 5 Mo.");
       if (!["image/jpeg", "image/png", "image/webp"].includes(photo.type))
@@ -671,6 +600,7 @@ function Menu({ cafe }: { cafe: Cafe }) {
     if (res.error) return setMessage(res.error.message);
     setShow(null);
     setEdit(null);
+    setProductImage(null);
     load();
   }
   async function availability(p: any) {
@@ -720,20 +650,33 @@ function Menu({ cafe }: { cafe: Cafe }) {
           <h2>Produits</h2>
           <p>Gérez les prix, les catégories et la disponibilité immédiate.</p>
         </div>
-        <div>
-          <button className="btn secondary" onClick={() => setShow("category")}>
-            <Plus /> Catégorie
-          </button>{" "}
-          <button className="btn primary" onClick={() => setShow("product")}>
-            <Plus /> Ajouter un produit
-          </button>
+        <div className="menu-actions">
+          {showDesigner && <Link className="btn secondary" to={`/admin/cafes/${cafe.id}/identite`}>Choisir un template</Link>}
+          {canManageCategories && (
+            <button className="btn secondary" onClick={() => setShow("category")}>
+              <Plus /> Catégorie
+            </button>
+          )}
+          {canManageProducts && (
+            <button className="btn primary" onClick={() => setShow("product")}>
+              <Plus /> Ajouter un produit
+            </button>
+          )}
         </div>
       </div>
       {message && <div className="alert error">{message}</div>}
       <div className="category-manager" aria-label="Ordre des catégories">
         {categories.map((category) => (
           <div key={category.id}>
+            {category.image_path && (
+              <img
+                className="category-manager-image"
+                src={supabase.storage.from("product-images").getPublicUrl(category.image_path).data.publicUrl}
+                alt=""
+              />
+            )}
             <strong>{category.name}</strong>
+            {canManageCategories && <>
             <button
               aria-label={`Monter ${category.name}`}
               onClick={() => move("menu_categories", category, categories, -1)}
@@ -746,7 +689,10 @@ function Menu({ cafe }: { cafe: Cafe }) {
             >
               ↓
             </button>
-            <button onClick={() => renameCategory(category)}>Renommer</button>
+            <button onClick={() => {
+              setEditCategory(category);
+              setShow("category");
+            }}>Modifier</button>
             <button
               onClick={async () => {
                 await supabase
@@ -758,6 +704,7 @@ function Menu({ cafe }: { cafe: Cafe }) {
             >
               {category.active ? "Désactiver" : "Activer"}
             </button>
+            </>}
           </div>
         ))}
       </div>
@@ -787,7 +734,7 @@ function Menu({ cafe }: { cafe: Cafe }) {
                 {formatMoney(p.price_minor, cafe.currency)}
               </strong>
               <p>{p.description}</p>
-              <div className="card-actions">
+              {canManageProducts && <div className="card-actions">
                 <button
                   className="btn secondary"
                   onClick={() => {
@@ -832,7 +779,7 @@ function Menu({ cafe }: { cafe: Cafe }) {
                 >
                   ↓
                 </button>
-              </div>
+              </div>}
             </div>
           </article>
         ))}
@@ -847,7 +794,7 @@ function Menu({ cafe }: { cafe: Cafe }) {
           <section className="modal">
             <h2>
               {show === "category"
-                ? "Nouvelle catégorie"
+                ? editCategory ? "Modifier la catégorie" : "Nouvelle catégorie"
                 : edit
                   ? "Modifier le produit"
                   : "Nouveau produit"}
@@ -856,17 +803,22 @@ function Menu({ cafe }: { cafe: Cafe }) {
               <form onSubmit={saveCategory} className="form-grid">
                 <label>
                   Nom
-                  <input name="name" required autoFocus />
+                  <input name="name" defaultValue={editCategory?.name} required autoFocus />
                 </label>
+                <ImageDropzone label="Image de la catégorie" value={menuImage(editCategory?.image_path, 'product-images')} onFile={file => setCategoryImage(file)} />
                 <div className="modal-actions">
                   <button
                     type="button"
                     className="btn secondary"
-                    onClick={() => setShow(null)}
+                    onClick={() => {
+                      setShow(null);
+                      setEditCategory(null);
+                      setCategoryImage(null);
+                    }}
                   >
                     Annuler
                   </button>
-                  <button className="btn primary">Ajouter</button>
+                  <button className="btn primary">Enregistrer</button>
                 </div>
               </form>
             ) : (
@@ -913,14 +865,7 @@ function Menu({ cafe }: { cafe: Cafe }) {
                     required
                   />
                 </label>
-                <label>
-                  Photo 4:3
-                  <input
-                    name="photo"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                  />
-                </label>
+                <ImageDropzone label="Photo du produit" value={menuImage(edit?.photo_path, 'product-images')} onFile={file => setProductImage(file)} />
                 <div className="modal-actions">
                   <button
                     type="button"
@@ -928,6 +873,7 @@ function Menu({ cafe }: { cafe: Cafe }) {
                     onClick={() => {
                       setShow(null);
                       setEdit(null);
+                      setProductImage(null);
                     }}
                   >
                     Annuler
@@ -944,6 +890,11 @@ function Menu({ cafe }: { cafe: Cafe }) {
 }
 
 function Tables({ cafe }: { cafe: Cafe }) {
+  const [deliveryEnabled, setDeliveryEnabled] = useState(false);
+  const [deliveryLoading, setDeliveryLoading] = useState(true);
+  const [deliveryQr, setDeliveryQr] = useState('');
+  const base = (import.meta.env.VITE_PUBLIC_MENU_URL || location.origin).replace(/\/$/, '');
+  const deliveryUrl = `${base}/${encodeURIComponent(cafe.slug)}?mode=delivery`;
   const [tables, setTables] = useState<any[]>([]),
     [label, setLabel] = useState(""),
     [message, setMessage] = useState("");
@@ -957,7 +908,19 @@ function Tables({ cafe }: { cafe: Cafe }) {
   }
   useEffect(() => {
     load();
+    setDeliveryLoading(true);
+    supabase.from('cafes').select('delivery_enabled').eq('id', cafe.id).single().then(({ data, error }) => {
+      if (error) setMessage(error.message);
+      else { setDeliveryEnabled(data.delivery_enabled); setDeliveryLoading(false); }
+    });
   }, [cafe.id]);
+  useEffect(() => { orderQr(deliveryUrl, 'Livraison').then(setDeliveryQr).catch(e => setMessage(e.message)); }, [deliveryUrl]);
+  async function toggleDelivery() {
+    setDeliveryLoading(true); setMessage('');
+    const { error } = await supabase.from('cafes').update({ delivery_enabled: !deliveryEnabled }).eq('id', cafe.id);
+    if (error) setMessage(error.message); else setDeliveryEnabled(!deliveryEnabled);
+    setDeliveryLoading(false);
+  }
   async function create(e: FormEvent) {
     e.preventDefault();
     const { data, error } = await supabase.rpc("admin_create_table", {
@@ -966,17 +929,13 @@ function Tables({ cafe }: { cafe: Cafe }) {
     });
     if (error) return setMessage(error.message);
     setLabel("");
-    await download(data.label, data.token, "png");
+    await download(data.label, data.token, "png").catch(e => setMessage(e.message));
     load();
   }
-  async function download(label: string, token: string, format: "png" | "pdf") {
-    const base = import.meta.env.VITE_PUBLIC_MENU_URL || location.origin;
-    const url = `${base}/${cafe.slug}?table=${encodeURIComponent(token)}`;
-    const png = await QRCode.toDataURL(url, {
-      width: 1024,
-      margin: 3,
-      color: { dark: "#2B2118", light: "#FFFDF8" },
-    });
+  async function download(label: string, token: string | null, format: "png" | "pdf") {
+    const url = token === null ? deliveryUrl : `${base}/${encodeURIComponent(cafe.slug)}?table=${encodeURIComponent(token)}`;
+    const centerLabel = token === null ? 'Livraison' : label.match(/\d+/)?.[0] || label;
+    const png = await orderQr(url, centerLabel);
     if (format === "pdf") {
       const { jsPDF } = await import("jspdf");
       const pdf = new jsPDF();
@@ -1006,7 +965,7 @@ function Tables({ cafe }: { cafe: Cafe }) {
       p_table_id: t.id,
     });
     if (error) return setMessage(error.message);
-    await download(t.label, data.token, format);
+    await download(t.label, data.token, format).catch(e => setMessage(e.message));
   }
   return (
     <section className="content-panel">
@@ -1029,6 +988,18 @@ function Tables({ cafe }: { cafe: Cafe }) {
         </form>
       </div>
       {message && <div className="alert error">{message}</div>}
+      <div className="delivery-qr-panel">
+        <div>
+          <h3>Commandes en livraison</h3>
+          <p>Activez la livraison pour ce café. Téléphone et position obligatoires avant confirmation.</p>
+          <label className="delivery-switch"><input type="checkbox" checked={deliveryEnabled} disabled={deliveryLoading} onChange={toggleDelivery} /> {deliveryEnabled ? 'Livraison activée' : 'Activer la livraison'}</label>
+          <p>Le QR livraison ouvre le menu avec le mode livraison présélectionné. Il ne correspond à aucune table. Le café doit être publié.</p>
+          {base.includes('localhost') && <p className="alert warning">Pour scanner depuis un téléphone, configurez VITE_PUBLIC_MENU_URL avec l’adresse HTTPS publique, pas localhost.</p>}
+          <div className="actions"><button className="btn secondary" disabled={!deliveryEnabled} onClick={() => void download('Livraison', null, 'png').catch(e => setMessage(e.message))}>QR livraison · PNG</button><button className="btn secondary" disabled={!deliveryEnabled} onClick={() => void download('Livraison', null, 'pdf').catch(e => setMessage(e.message))}>PDF</button></div>
+        </div>
+        {deliveryQr && <img src={deliveryQr} alt="QR du menu pour les commandes en livraison" width={180} height={180} />}
+      </div>
+      <p>Les nouveaux QR de table portent le numéro de la table au centre. Régénérer un QR invalide l’ancien.</p>
       <div className="table-list">
         {tables.map((t) => (
           <article key={t.id}>
@@ -1070,7 +1041,13 @@ function Tables({ cafe }: { cafe: Cafe }) {
 function Staff({ cafe }: { cafe: Cafe }) {
   const [staff, setStaff] = useState<any[]>([]),
     [message, setMessage] = useState(""),
-    [form, setForm] = useState({ email: "", display_name: "" });
+    [form, setForm] = useState({
+      email: "",
+      password: "",
+      display_name: "",
+      can_manage_categories: false,
+      can_manage_products: false,
+    });
   async function load() {
     const { data } = await supabase
       .from("staff_profiles")
@@ -1086,15 +1063,26 @@ function Staff({ cafe }: { cafe: Cafe }) {
     setMessage("Invitation en cours…");
     try {
       await invoke("admin-staff", {
-        action: "invite",
+        action: "create",
         cafeId: cafe.id,
         ...form,
       });
-      setForm({ email: "", display_name: "" });
-      setMessage("Invitation envoyée.");
+      setForm({
+        email: "",
+        password: "",
+        display_name: "",
+        can_manage_categories: false,
+        can_manage_products: false,
+      });
+      setMessage("Compte employé créé.");
       load();
     } catch (e) {
-      setMessage((e as Error).message);
+      const detail = (e as Error).message;
+      setMessage(
+        detail.includes("EMAIL_ALREADY_EXISTS")
+          ? "Cet email possède déjà un compte. Utilisez une autre adresse email."
+          : detail,
+      );
     }
   }
   async function action(userId: string, active: boolean) {
@@ -1103,6 +1091,24 @@ function Staff({ cafe }: { cafe: Cafe }) {
         action: active ? "disable" : "enable",
         userId,
       });
+      load();
+    } catch (e) {
+      setMessage((e as Error).message);
+    }
+  }
+  async function permissions(
+    userId: string,
+    canManageCategories: boolean,
+    canManageProducts: boolean,
+  ) {
+    try {
+      await invoke("admin-staff", {
+        action: "permissions",
+        userId,
+        can_manage_categories: canManageCategories,
+        can_manage_products: canManageProducts,
+      });
+      setMessage("Permissions mises à jour.");
       load();
     } catch (e) {
       setMessage((e as Error).message);
@@ -1135,8 +1141,39 @@ function Staff({ cafe }: { cafe: Cafe }) {
             required
           />
         </label>
+        <label>
+          Mot de passe temporaire
+          <input
+            type="password"
+            minLength={12}
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            required
+          />
+          <small>12 caractères minimum.</small>
+        </label>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={form.can_manage_categories}
+            onChange={(e) =>
+              setForm({ ...form, can_manage_categories: e.target.checked })
+            }
+          />
+          Peut modifier les catégories
+        </label>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={form.can_manage_products}
+            onChange={(e) =>
+              setForm({ ...form, can_manage_products: e.target.checked })
+            }
+          />
+          Peut modifier les produits
+        </label>
         <button className="btn primary">
-          <Users /> Inviter
+          <Users /> Créer le compte
         </button>
       </form>
       {message && <div className="alert info">{message}</div>}
@@ -1147,12 +1184,40 @@ function Staff({ cafe }: { cafe: Cafe }) {
             <div>
               <h3>{s.display_name}</h3>
               <p>{s.active ? "Compte actif" : "Compte désactivé"}</p>
+              <small>
+                Catégories : {s.can_manage_categories ? "édition" : "lecture"}
+                {" · "}Produits : {s.can_manage_products ? "édition" : "lecture"}
+              </small>
             </div>
             <button
               className={`btn ${s.active ? "danger" : "primary"}`}
               onClick={() => action(s.user_id, s.active)}
             >
               {s.active ? "Désactiver" : "Réactiver"}
+            </button>
+            <button
+              className="btn secondary"
+              onClick={() =>
+                permissions(
+                  s.user_id,
+                  !s.can_manage_categories,
+                  s.can_manage_products,
+                )
+              }
+            >
+              {s.can_manage_categories ? "Retirer catégories" : "Autoriser catégories"}
+            </button>
+            <button
+              className="btn secondary"
+              onClick={() =>
+                permissions(
+                  s.user_id,
+                  s.can_manage_categories,
+                  !s.can_manage_products,
+                )
+              }
+            >
+              {s.can_manage_products ? "Retirer produits" : "Autoriser produits"}
             </button>
             <button
               className="link-btn"
@@ -1211,7 +1276,7 @@ function Orders({ cafe }: { cafe: Cafe }) {
             <div>
               <strong>{o.public_ref}</strong>
               <small>
-                {o.cafe_tables?.label} ·{" "}
+                {o.fulfillment_type === 'delivery' ? 'Livraison' : o.cafe_tables?.label} ·{" "}
                 {new Date(o.created_at).toLocaleString("fr-MA")}
               </small>
             </div>

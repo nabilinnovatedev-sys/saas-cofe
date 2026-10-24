@@ -1,0 +1,15 @@
+// Optional local-build fallback for unavailable repo.reactnative.dev artifacts.
+// Scope the Maven Central mirror to React Native only; keep other repositories intact.
+allprojects {
+    repositories {
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'ReactNativeCentralMirror'
+                    url = uri('https://maven-central.storage-download.googleapis.com/maven2/')
+                }
+            }
+            filter { includeGroup('com.facebook.react') }
+        }
+    }
+}

@@ -28,13 +28,20 @@ export function Login() {
       .select("role,active")
       .eq("user_id", data.user.id)
       .single();
-    if (!p?.active || p.role !== "platform_admin") {
+    if (!p?.active || !["platform_admin", "waiter"].includes(p.role)) {
       await supabase.auth.signOut();
-      setError("Ce compte ne dispose pas des droits administrateur.");
+      setError("Ce compte ne dispose pas d’un accès actif.");
       setLoading(false);
       return;
     }
-    navigate((location.state as { from?: string })?.from || "/admin", {
+    const requested = (location.state as { from?: string })?.from;
+    const destination =
+      p.role === "platform_admin"
+        ? requested?.startsWith("/admin")
+          ? requested
+          : "/admin"
+        : "/equipe";
+    navigate(destination, {
       replace: true,
     });
   }

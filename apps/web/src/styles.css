@@ -743,7 +743,7 @@ textarea {
 }
 .public-page {
   min-height: 100vh;
-  background: #fffdf8;
+  background: color-mix(in srgb, var(--menu-background) 16%, #fffdf8);
   padding-bottom: 110px;
 }
 
@@ -759,18 +759,39 @@ textarea {
   box-shadow: 0 2px 12px rgb(0 0 0 / 18%);
 }
 .public-hero {
-  min-height: 300px;
-  background:
-    linear-gradient(#fff5e899, #fff5e899),
-    radial-gradient(
-      circle at 20% 30%,
-      color-mix(in srgb, var(--brand) 30%, transparent),
-      transparent 35%
-    );
+  min-height: 340px;
+  background-position: center;
+  background-size: cover;
   display: grid;
   place-items: center;
   text-align: center;
   padding: 32px 20px;
+}
+.public-hero.has-image h1,
+.public-hero.has-image p,
+.public-hero.has-image .ornament,
+.public-hero.has-image .hero-overlay > svg {
+  color: #fff;
+  text-shadow: 0 2px 18px rgb(0 0 0 / 45%);
+}
+.hero-overlay {
+  width: min(720px, 100%);
+}
+.hero-overlay.logo-top {
+  align-self: start;
+}
+.hero-overlay.logo-center {
+  align-self: center;
+}
+.hero-overlay.logo-overlap .public-logo {
+  width: 112px;
+  height: 112px;
+  margin-top: 190px;
+  margin-bottom: -4px;
+  background: #fff;
+  border: 6px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 10px 25px rgb(0 0 0 / 22%);
 }
 .hero-overlay > svg {
   color: var(--brand);
@@ -838,6 +859,101 @@ textarea {
   max-width: 900px;
   margin: auto;
   padding: 24px 16px;
+}
+.menu-intro {
+  text-align: center;
+  margin: 8px 0 24px;
+}
+.menu-intro span {
+  color: var(--brand);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.76rem;
+}
+.menu-intro h2 {
+  font-size: clamp(1.8rem, 5vw, 2.7rem);
+  margin: 6px 0;
+}
+.public-categories {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.public-category-card {
+  border: 0;
+  background: #fff;
+  padding: 0;
+  border-radius: 22px;
+  overflow: hidden;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 170px 1fr auto;
+  align-items: center;
+  gap: 18px;
+  box-shadow: 0 10px 35px rgb(43 33 24 / 10%);
+  color: #2b2118;
+  cursor: pointer;
+}
+.public-category-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 42px rgb(43 33 24 / 16%);
+}
+.public-category-image {
+  height: 150px;
+  background: color-mix(in srgb, var(--brand) 16%, #eee);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.public-category-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.public-category-card strong,
+.public-category-card small {
+  display: block;
+}
+.public-category-card strong {
+  font-family: Fraunces, serif;
+  font-size: 1.35rem;
+}
+.public-category-card small {
+  margin-top: 6px;
+  color: var(--muted);
+}
+.public-category-card > svg {
+  margin-right: 18px;
+  color: var(--brand);
+}
+.category-back {
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font-weight: 800;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.selected-category > h2 {
+  font-size: clamp(2rem, 6vw, 3rem);
+  margin: 12px 0 24px;
+}
+.category-manager-image {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.checkbox-label {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px;
+}
+.checkbox-label input {
+  width: 18px;
+  height: 18px;
 }
 .menu-content > div {
   scroll-margin-top: 80px;
@@ -1185,7 +1301,22 @@ textarea {
     min-width: 50%;
   }
   .public-hero {
-    min-height: 260px;
+    min-height: 300px;
+  }
+  .hero-overlay.logo-overlap .public-logo {
+    margin-top: 150px;
+    width: 96px;
+    height: 96px;
+  }
+  .public-categories {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .public-category-card {
+    grid-template-columns: 120px 1fr auto;
+  }
+  .public-category-image {
+    height: 118px;
   }
   .public-products article {
     grid-template-columns: 120px 1fr 44px;
@@ -1219,3 +1350,14 @@ textarea {
     transition-duration: 0.001ms !important;
   }
 }
+/* Delivery checkout and its dedicated printable QR. */
+.delivery-banner { padding: 14px 24px; text-align: center; background: #edf5ef; color: #254d33; }
+.delivery-checkout { margin: 0 0 20px; padding: 16px; border: 1px solid #ded7cc; border-radius: 16px; }
+.delivery-checkout > label, .delivery-switch { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.delivery-checkout input[type=radio], .delivery-switch input { width: auto; flex: 0 0 auto; }
+.delivery-fields { display: grid; gap: 12px; margin-top: 16px; }
+.delivery-fields p { font-size: 14px; line-height: 1.5; margin: 0; }
+.delivery-qr-panel { display: flex; align-items: center; gap: 24px; padding: 24px; margin: 20px 0; border: 1px solid #ded7cc; border-radius: 18px; background: #f6faf6; }
+.delivery-qr-panel img { flex-shrink: 0; }
+.delivery-qr-panel .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 700px) { .delivery-qr-panel { flex-direction: column; align-items: flex-start; } }

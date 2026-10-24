@@ -20,6 +20,7 @@ import {
   type PublicMenu,
 } from "@cafe/domain";
 import { invoke, supabase } from "../lib/supabase";
+import { MenuCatalog } from "../components/MenuCatalog";
 
 type OrderResult = {
   order_id: string;
@@ -35,6 +36,16 @@ export function PublicCafe() {
   const tableToken = params.get("table");
   const previewCafeId = params.get("preview");
   const isPreview = Boolean(previewCafeId);
+  const [fulfillment, setFulfillment] = useState<'dine_in' | 'delivery'>(params.get('mode') === 'delivery' ? 'delivery' : 'dine_in');
+  const [phone, setPhone] = useState('');
+  const [position, setPosition] = useState<{ latitude: number; longitude: number; accuracy: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const validPhone = /^\+?[0-9]{8,15}$/.test(phone.replace(/[\s().-]/g, ''));
+  useEffect(() => {
+    setPhone(''); setPosition(null); setLocationError('');
+    setFulfillment(params.get('mode') === 'delivery' ? 'delivery' : 'dine_in');
+  }, [slug, params]);
   const [menu, setMenu] = useState<PublicMenu | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
@@ -60,7 +71,7 @@ export function PublicCafe() {
           supabase
             .from("cafes")
             .select(
-              "id,name,slug,currency,contact_phone,contact_address,status",
+              "id,name,slug,currency,contact_phone,contact_address,status,delivery_enabled",
             )
             .eq("id", previewCafeId)
             .eq("slug", slug)
@@ -68,13 +79,13 @@ export function PublicCafe() {
           supabase
             .from("cafe_branding")
             .select(
-              "description,primary_color,secondary_color,accent_color,logo_path",
+              "description,primary_color,secondary_color,accent_color,logo_path,hero_background_type,hero_background_color,hero_background_path,logo_position,template_id",
             )
             .eq("cafe_id", previewCafeId)
             .maybeSingle(),
           supabase
             .from("menu_categories")
-            .select("id,name,sort_order")
+            .select("id,name,sort_order,image_path")
             .eq("cafe_id", previewCafeId)
             .eq("active", true)
             .order("sort_order"),
@@ -113,11 +124,21 @@ export function PublicCafe() {
             secondary_color: branding?.secondary_color || "#557A64",
             accent_color: branding?.accent_color || "#D98C32",
             logo_url: branding?.logo_path || null,
+            template_id: branding?.template_id || "cafe",
+            hero_background_type: branding?.hero_background_type || "color",
+            hero_background_color:
+              branding?.hero_background_color || "#F3E7D7",
+            hero_background_url: branding?.hero_background_path || null,
+            logo_position: branding?.logo_position || "overlap",
             contact_phone: cafe.contact_phone,
             contact_address: cafe.contact_address,
+            delivery_enabled: cafe.delivery_enabled,
           },
           categories: (categoriesResult.data || []).map((category) => ({
-            ...category,
+            id: category.id,
+            name: category.name,
+            sort_order: category.sort_order,
+            image_url: category.image_path,
             products: products
               .filter((product) => product.category_id === category.id)
               .map(({ photo_path, ...product }) => ({
@@ -169,8 +190,23 @@ export function PublicCafe() {
           ),
     );
   }
+  function locate() {
+    setLocationError(''); setPosition(null);
+    if (!navigator.geolocation || !window.isSecureContext) {
+      setLocationError('La localisation nécessite HTTPS et un navigateur compatible.'); return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => { setPosition({ latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy }); setLocating(false); },
+      (e) => { setLocating(false); setLocationError(e.code === 1 ? 'Autorisez la localisation dans les réglages du navigateur, puis réessayez.' : 'Position introuvable. Activez le GPS et réessayez.'); },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  }
   async function submit() {
-    if (!menu?.table.valid)
+    if (!menu || isPreview || sending) return;
+    if (fulfillment === 'delivery' && (!menu?.cafe.delivery_enabled || !validPhone || !position))
+      return setSubmitError('Pour la livraison, entrez votre téléphone et partagez votre position.');
+    if (fulfillment === 'dine_in' && !menu?.table.valid)
       return setSubmitError("Scannez le QR de votre table pour commander.");
     if (!cart.length) return;
     setSending(true);
@@ -184,6 +220,10 @@ export function PublicCafe() {
       const r = await invoke<OrderResult>("create-order", {
         slug,
         tableToken,
+        fulfillmentType: fulfillment,
+        customerPhone: fulfillment === 'delivery' ? phone : undefined,
+        latitude: fulfillment === 'delivery' ? position?.latitude : undefined,
+        longitude: fulfillment === 'delivery' ? position?.longitude : undefined,
         idempotencyKey: key,
         items: cart.map((l) => ({
           productId: l.product.id,
@@ -197,6 +237,11 @@ export function PublicCafe() {
       location.href = `/suivi/${encodeURIComponent(r.tracking_token)}`;
     } catch (e) {
       const raw = (e as Error).message;
+      if (raw.includes('DELIVERY_DISABLED')) {
+        setMenu(m => m ? { ...m, cafe: { ...m.cafe, delivery_enabled: false } } : m);
+        setSubmitError('Ce café a désactivé la livraison.');
+        setSending(false); return;
+      }
       if (raw.includes("CART_CHANGED")) {
         try {
           const payload = JSON.parse(raw);
@@ -254,6 +299,7 @@ export function PublicCafe() {
     "--brand": accessibleBrandColor(menu.cafe.primary_color),
     "--secondary": menu.cafe.secondary_color,
     "--accent": menu.cafe.accent_color,
+    "--menu-background": menu.cafe.hero_background_color || "#fffdf8",
   } as React.CSSProperties;
   return (
     <main className="public-page" style={style}>
@@ -263,98 +309,8 @@ export function PublicCafe() {
           version.
         </div>
       )}
-      <header className="public-hero">
-        <div className="hero-overlay">
-          {menu.cafe.logo_url ? (
-            <img
-              className="public-logo"
-              src={
-                menu.cafe.logo_url.startsWith("http")
-                  ? menu.cafe.logo_url
-                  : supabase.storage
-                      .from("cafe-branding")
-                      .getPublicUrl(menu.cafe.logo_url).data.publicUrl
-              }
-              alt={`Logo ${menu.cafe.name}`}
-            />
-          ) : (
-            <Coffee />
-          )}
-          <h1>{menu.cafe.name}</h1>
-          <span className="ornament">◇</span>
-          <p>{menu.cafe.description}</p>
-          {menu.table.valid ? (
-            <span className="table-pill">▣ {menu.table.label}</span>
-          ) : (
-            <span className="table-pill warning">Consultation uniquement</span>
-          )}
-        </div>
-      </header>
-      <nav className="category-nav" aria-label="Catégories">
-        {menu.categories.map((c) => (
-          <a href={`#cat-${c.id}`} key={c.id}>
-            {c.name}
-          </a>
-        ))}
-      </nav>
-      <section className="menu-content">
-        {menu.categories.map((c) => (
-          <div key={c.id} id={`cat-${c.id}`}>
-            <h2>{c.name}</h2>
-            <div className="public-products">
-              {c.products.map((p) => (
-                <article
-                  key={p.id}
-                  className={!p.available ? "unavailable" : ""}
-                >
-                  <div className="public-product-image">
-                    {p.photo_url ? (
-                      <img
-                        src={
-                          p.photo_url.startsWith("http")
-                            ? p.photo_url
-                            : supabase.storage
-                                .from("product-images")
-                                .getPublicUrl(p.photo_url).data.publicUrl
-                        }
-                        alt=""
-                      />
-                    ) : (
-                      <Coffee />
-                    )}
-                  </div>
-                  <div className="public-product-copy">
-                    <h3>{p.name}</h3>
-                    {p.description && <p>{p.description}</p>}
-                    <strong>
-                      {formatMoney(p.price_minor, menu.cafe.currency)}
-                    </strong>
-                    {!p.available && <small>Indisponible</small>}
-                  </div>
-                  <button
-                    aria-label={`Ajouter ${p.name}`}
-                    disabled={!p.available}
-                    onClick={() => add(p)}
-                  >
-                    <Plus />
-                  </button>
-                </article>
-              ))}
-            </div>
-          </div>
-        ))}
-        {(menu.cafe.contact_address || menu.cafe.contact_phone) && (
-          <footer className="public-contact">
-            <h2>Nous trouver</h2>
-            {menu.cafe.contact_address && <p>{menu.cafe.contact_address}</p>}
-            {menu.cafe.contact_phone && (
-              <a href={`tel:${menu.cafe.contact_phone}`}>
-                {menu.cafe.contact_phone}
-              </a>
-            )}
-          </footer>
-        )}
-      </section>
+      <MenuCatalog menu={menu} onAdd={isPreview ? undefined : add} />
+      {!isPreview && (menu.cafe.delivery_enabled || fulfillment === 'delivery') && <div className="delivery-banner" role="status">{menu.cafe.delivery_enabled ? 'Livraison disponible · choisissez Livraison dans votre panier.' : 'La livraison est actuellement indisponible pour ce café.'}</div>}
       {!isPreview && count > 0 && (
         <button className="cart-dock" onClick={() => setOpen(true)}>
           <ShoppingBag />
@@ -378,7 +334,7 @@ export function PublicCafe() {
             <header>
               <div>
                 <small>
-                  {menu.table.valid ? menu.table.label : "QR requis"}
+                  {fulfillment === 'delivery' ? 'Livraison' : menu.table.valid ? menu.table.label : "QR requis"}
                 </small>
                 <h2>Votre panier</h2>
               </div>
@@ -391,6 +347,19 @@ export function PublicCafe() {
               </button>
             </header>
             <div className="cart-lines">
+              <fieldset className="delivery-checkout" disabled={sending}>
+                <legend>Mode de commande</legend>
+                <label><input type="radio" name="fulfillment" checked={fulfillment === 'dine_in'} onChange={() => setFulfillment('dine_in')} /> Sur place {menu.table.valid ? `· ${menu.table.label}` : '(QR de table requis)'}</label>
+                {(menu.cafe.delivery_enabled || fulfillment === 'delivery') && <label><input type="radio" name="fulfillment" checked={fulfillment === 'delivery'} disabled={!menu.cafe.delivery_enabled} onChange={() => setFulfillment('delivery')} /> Livraison {!menu.cafe.delivery_enabled && '(indisponible)'}</label>}
+                {fulfillment === 'delivery' && <div className="delivery-fields">
+                  <label>Téléphone pour la livraison<input type="tel" autoComplete="tel" maxLength={25} placeholder="Ex. 0612345678 ou +212612345678" value={phone} disabled={!menu.cafe.delivery_enabled} onChange={e => setPhone(e.target.value)} required /></label>
+                  {phone && !validPhone && <small>Entrez un numéro valide (8 à 15 chiffres).</small>}
+                  <p>Votre numéro et votre position actuelle seront transmis à l’équipe de ce café pour vous livrer. Partagez votre position depuis le lieu de livraison.</p>
+                  <button className="btn secondary" type="button" disabled={locating || !menu.cafe.delivery_enabled} onClick={locate}>{locating ? 'Localisation…' : position ? 'Actualiser ma position' : 'Autoriser et partager ma position'}</button>
+                  {position && <p role="status">Position reçue · précision ±{Math.round(position.accuracy)} m. <a target="_blank" rel="noreferrer" href={`https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}`}>Vérifier sur la carte</a>{position.accuracy > 200 && ' Position approximative : rapprochez-vous d’une fenêtre et réessayez.'}</p>}
+                  {locationError && <p role="alert">{locationError}</p>}
+                </div>}
+              </fieldset>
               {cart.map((l) => (
                 <article key={l.product.id}>
                   <div>
@@ -447,7 +416,7 @@ export function PublicCafe() {
                 <span>Total</span>
                 <strong>{formatMoney(total, menu.cafe.currency)}</strong>
               </div>
-              {!menu.table.valid && (
+              {fulfillment === 'dine_in' && !menu.table.valid && (
                 <div className="alert warning">
                   Scannez le QR de votre table pour commander.
                 </div>
@@ -459,14 +428,13 @@ export function PublicCafe() {
               )}
               <button
                 className="btn primary wide"
-                disabled={sending || !menu.table.valid || hasUnavailable}
+                disabled={sending || !cart.length || hasUnavailable || (fulfillment === 'delivery' ? !menu.cafe.delivery_enabled || !validPhone || !position || locating : !menu.table.valid)}
                 onClick={submit}
               >
-                {sending ? "Envoi de la commande…" : "Envoyer la commande"}
+                {sending ? "Envoi de la commande…" : fulfillment === 'delivery' ? "Confirmer la livraison" : "Envoyer la commande"}
               </button>
               <small>
-                Aucune donnée personnelle n’est demandée. Évitez les
-                informations sensibles dans les notes.
+                Évitez les informations sensibles dans les notes. Le téléphone et la position ne sont demandés que pour la livraison.
               </small>
             </footer>
           </section>
@@ -531,7 +499,7 @@ export function Tracking() {
         <p className="eyebrow">Commande confirmée</p>
         <h1>{order.public_ref}</h1>
         <p>
-          Votre commande pour <strong>{order.table_label}</strong> a bien été
+          Votre commande {order.fulfillment_type === 'delivery' ? 'en livraison' : 'pour'} <strong>{order.fulfillment_type === 'delivery' ? '' : order.table_label}</strong> a bien été
           transmise.
         </p>
         <ol className="timeline">
@@ -539,7 +507,7 @@ export function Tracking() {
             <li className={i <= current ? "done" : ""} key={s}>
               <span>{i < current ? <Check /> : i + 1}</span>
               <div>
-                <strong>{ORDER_LABELS[s]}</strong>
+                <strong>{s === 'servie' && order.fulfillment_type === 'delivery' ? 'Livrée' : ORDER_LABELS[s]}</strong>
                 {s === order.status && <small>État actuel</small>}
               </div>
             </li>

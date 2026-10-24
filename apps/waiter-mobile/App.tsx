@@ -46,6 +46,10 @@ type Order = {
   version: number;
   created_at: string;
   order_note: string | null;
+  fulfillment_type: 'dine_in' | 'delivery';
+  customer_phone: string | null;
+  delivery_latitude: number | null;
+  delivery_longitude: number | null;
   cafe_tables: { label: string } | null;
   order_items: any[];
   order_status_history: any[];
@@ -321,6 +325,14 @@ function Waiter({ session }: { session: Session }) {
     return () => subscription.remove();
   }, []);
   async function notifications() {
+    const projectId =
+      process.env.EXPO_PUBLIC_EAS_PROJECT_ID ||
+      Constants.expoConfig?.extra?.eas?.projectId;
+    if (!projectId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId) || projectId === '00000000-0000-0000-0000-000000000000') {
+      setNotice('Notifications non configurées : renseignez EXPO_PUBLIC_EAS_PROJECT_ID et utilisez un build mobile configuré.');
+      return;
+    }
+    try {
     const existing = await Notifications.getPermissionsAsync();
     let status = existing.status;
     if (status !== "granted")
@@ -334,9 +346,6 @@ function Waiter({ session }: { session: Session }) {
         sound: "default",
         vibrationPattern: [0, 250, 250, 250],
       });
-    const projectId =
-      process.env.EXPO_PUBLIC_EAS_PROJECT_ID ||
-      Constants.expoConfig?.extra?.eas?.projectId;
     const token = (await Notifications.getExpoPushTokenAsync({ projectId }))
       .data;
     const { error } = await supabase.functions.invoke("register-device", {
@@ -347,6 +356,9 @@ function Waiter({ session }: { session: Session }) {
         ? "Le jeton push n’a pas pu être enregistré."
         : "Notifications activées sur cet appareil.",
     );
+    } catch {
+      setNotice('Activation des notifications impossible. Vérifiez le build mobile, les credentials push et la connexion.');
+    }
   }
   async function transition(order: Order, to: OrderStatus, reason?: string) {
     if (offline) return;
@@ -498,12 +510,12 @@ function OrderCard({
     >
       <View style={s.orderHead}>
         <View>
-          <Text style={s.table}>{order.cafe_tables?.label}</Text>
+          <Text style={s.table}>{order.fulfillment_type === 'delivery' ? 'Livraison' : order.cafe_tables?.label}</Text>
           <Text style={s.ref}>{order.public_ref}</Text>
         </View>
         <View style={[s.status, { backgroundColor: statusBg(order.status) }]}>
           <Text style={{ color: statusColor(order.status), fontWeight: "700" }}>
-            {ORDER_LABELS[order.status]}
+            {order.fulfillment_type === 'delivery' && order.status === 'servie' ? 'Livrée' : ORDER_LABELS[order.status]}
           </Text>
         </View>
       </View>
@@ -523,7 +535,7 @@ function OrderCard({
       </View>
       {next ? (
         <Button
-          title={NEXT_ACTION[order.status] || "Continuer"}
+          title={order.fulfillment_type === 'delivery' && order.status === 'prete' ? 'Marquer livrée' : NEXT_ACTION[order.status] || "Continuer"}
           onPress={() => onTransition(order, next)}
           disabled={offline}
         />
@@ -569,7 +581,7 @@ function OrderModal({
     <View style={{ gap: 12 }}>
       {next ? (
         <Button
-          title={NEXT_ACTION[order.status] || "Continuer"}
+          title={order.fulfillment_type === 'delivery' && order.status === 'prete' ? 'Marquer livrée' : NEXT_ACTION[order.status] || "Continuer"}
           onPress={() => transition(order, next)}
           disabled={offline}
         />
@@ -596,7 +608,17 @@ function OrderModal({
           <Pressable onPress={close}>
             <Text style={s.link}>← Fermer</Text>
           </Pressable>
-          <Text style={s.h1}>{order.cafe_tables?.label}</Text>
+          <Text style={s.h1}>{order.fulfillment_type === 'delivery' ? 'Livraison' : order.cafe_tables?.label}</Text>
+          {order.fulfillment_type === 'delivery' && <View style={[s.detailBox, { gap: 12 }]}>
+            <Text style={s.h2}>Coordonnées du client</Text>
+            <Text selectable>{order.customer_phone || 'Téléphone indisponible'}</Text>
+            {order.customer_phone && <Button title="Appeler le client" secondary onPress={() => { void Linking.openURL(`tel:${order.customer_phone}`).catch(() => Alert.alert('Appel impossible', 'Composez le numéro affiché depuis votre téléphone.')); }} />}
+            {order.delivery_latitude != null && order.delivery_longitude != null && <>
+              <Text selectable>Position : {order.delivery_latitude.toFixed(6)}, {order.delivery_longitude.toFixed(6)}</Text>
+              <Button title="Ouvrir le lieu de livraison" secondary onPress={() => { void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${order.delivery_latitude},${order.delivery_longitude}`).catch(() => Alert.alert('Carte indisponible', 'Vérifiez votre connexion.')); }} />
+            </>}
+            <Text style={s.muted}>Coordonnées partagées uniquement pour effectuer cette livraison.</Text>
+          </View>}
           <Text style={s.ref}>
             {order.public_ref} ·{" "}
             {new Date(order.created_at).toLocaleTimeString("fr-MA", {
@@ -636,7 +658,7 @@ function OrderModal({
               )
               .map((event) => (
                 <View key={event.id} style={s.detailLine}>
-                  <Text>{ORDER_LABELS[event.to_status as OrderStatus]}</Text>
+                  <Text>{order.fulfillment_type === 'delivery' && event.to_status === 'servie' ? 'Livrée' : ORDER_LABELS[event.to_status as OrderStatus]}</Text>
                   <Text style={s.muted}>
                     {new Date(event.created_at).toLocaleTimeString("fr-MA", {
                       hour: "2-digit",

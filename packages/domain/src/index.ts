@@ -102,10 +102,12 @@ export type MenuCategory = {
   id: string;
   name: string;
   sort_order: number;
+  image_url: string | null;
   products: MenuProduct[];
 };
 export type PublicMenu = {
   cafe: {
+    delivery_enabled?: boolean;
     id: string;
     name: string;
     slug: string;
@@ -115,6 +117,11 @@ export type PublicMenu = {
     secondary_color: string;
     accent_color: string;
     logo_url: string | null;
+    template_id?: "grill" | "cafe" | "garden";
+    hero_background_type?: "color" | "image";
+    hero_background_color?: string;
+    hero_background_url?: string | null;
+    logo_position?: "top" | "center" | "overlap";
     contact_phone?: string | null;
     contact_address?: string | null;
   };

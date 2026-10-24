@@ -10,4 +10,7 @@ coverage/
 supabase/.temp/
 *.log
 *.tsbuildinfo
+apps/waiter-mobile/android/
+apps/waiter-mobile/ios/
+artifacts/
 .DS_Store

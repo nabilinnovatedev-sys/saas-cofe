@@ -10,6 +10,9 @@ const AdminDashboard = lazy(() =>
 const CafeWorkspace = lazy(() =>
   import("./pages/Admin").then((module) => ({ default: module.CafeWorkspace })),
 );
+const StaffWorkspace = lazy(() =>
+  import("./pages/Admin").then((module) => ({ default: module.StaffWorkspace })),
+);
 const Login = lazy(() =>
   import("./pages/Login").then((module) => ({ default: module.Login })),
 );
@@ -22,7 +25,13 @@ const Tracking = lazy(() =>
   import("./pages/PublicCafe").then((module) => ({ default: module.Tracking })),
 );
 
-function Protected({ children }: { children: React.ReactNode }) {
+function Protected({
+  children,
+  roles,
+}: {
+  children: React.ReactNode;
+  roles: Array<"platform_admin" | "waiter">;
+}) {
   const [state, setState] = useState<"loading" | "ok" | "no">("loading");
   const location = useLocation();
   useEffect(() => {
@@ -35,11 +44,11 @@ function Protected({ children }: { children: React.ReactNode }) {
         .single()
         .then(({ data: profile }) =>
           setState(
-            profile?.active && profile.role === "platform_admin" ? "ok" : "no",
+            profile?.active && roles.includes(profile.role) ? "ok" : "no",
           ),
         );
     });
-  }, []);
+  }, [roles.join(",")]);
   if (state === "loading")
     return (
       <div className="state-page">
@@ -75,7 +84,7 @@ export function App() {
         <Route
           path="/admin"
           element={
-            <Protected>
+            <Protected roles={["platform_admin"]}>
               <AdminDashboard />
             </Protected>
           }
@@ -83,8 +92,16 @@ export function App() {
         <Route
           path="/admin/cafes/:cafeId/*"
           element={
-            <Protected>
+            <Protected roles={["platform_admin"]}>
               <CafeWorkspace />
+            </Protected>
+          }
+        />
+        <Route
+          path="/equipe"
+          element={
+            <Protected roles={["waiter"]}>
+              <StaffWorkspace />
             </Protected>
           }
         />
