@@ -216,6 +216,9 @@ a {
   display: grid;
   gap: 18px;
 }
+.form-grid > .span-2 {
+  grid-column: 1 / -1;
+}
 .login-card label,
 .form-grid label,
 .invite-form label {

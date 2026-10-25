@@ -84,6 +84,9 @@ export function AdminDashboard() {
     [recentOrders, setRecentOrders] = useState<any[]>([]),
     [loading, setLoading] = useState(true),
     [show, setShow] = useState(false),
+    [creating, setCreating] = useState(false),
+    [sourceCafeId, setSourceCafeId] = useState(""),
+    [createError, setCreateError] = useState(""),
     [query, setQuery] = useState(""),
     [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -113,15 +116,40 @@ export function AdminDashboard() {
   }, []);
   async function create(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    const { data, error } = await supabase
-      .from("cafes")
-      .insert({ ...form, slug: normalizeSlug(form.slug || form.name) })
-      .select()
-      .single();
-    if (error) return setError(error.message);
-    navigate("/admin/cafes/" + data.id + "/apercu");
+    if (creating) return;
+    setCreating(true);
+    setCreateError("");
+    try {
+      const { data, error } = await supabase.rpc("admin_create_cafe", {
+        p_name: form.name,
+        p_slug: normalizeSlug(form.slug || form.name),
+        p_currency: form.currency,
+        p_timezone: form.timezone,
+        p_source_cafe_id: sourceCafeId || null,
+      });
+      if (error) {
+        const messages: Record<string, string> = {
+          SOURCE_CAFE_NOT_FOUND: "Le café source n’existe plus. Choisissez un autre menu.",
+          SOURCE_MENU_EMPTY: "Ce café ne contient aucun produit à copier.",
+          SOURCE_CURRENCY_MISMATCH: "Utilisez la même devise que le café source pour copier ses prix.",
+          FORBIDDEN: "Seul un administrateur peut créer un café et copier son menu.",
+        };
+        setCreateError(error.code === "23505"
+          ? "Cette adresse publique existe déjà. Choisissez une autre adresse."
+          : messages[error.message] || error.message);
+        return;
+      }
+      if (!data?.id) throw new Error("Réponse de création invalide. Vérifiez la liste des cafés avant de réessayer.");
+      navigate(`/admin/cafes/${data.id}/${sourceCafeId ? "menu" : "apercu"}`);
+    } catch {
+      setCreateError("Création non confirmée. Vérifiez votre connexion et la liste des cafés avant de réessayer.");
+    } finally {
+      setCreating(false);
+    }
   }
+  const menuSources = [...cafes].sort((a, b) =>
+    Number(/mondialito/i.test(b.name)) - Number(/mondialito/i.test(a.name)) || a.name.localeCompare(b.name),
+  );
   const filtered = cafes.filter((c) =>
     c.name.toLowerCase().includes(query.toLowerCase()),
   );
@@ -133,7 +161,7 @@ export function AdminDashboard() {
           <h1>Vos cafés</h1>
           <p>Configurez vos établissements et suivez leur activité.</p>
         </div>
-        <button className="btn primary" onClick={() => setShow(true)}>
+        <button className="btn primary" onClick={() => { setCreateError(""); setShow(true); }}>
           <Plus /> Créer un café
         </button>
       </header>
@@ -229,22 +257,24 @@ export function AdminDashboard() {
         )}
       </section>
       {show && (
-        <div className="modal-backdrop" onMouseDown={() => setShow(false)}>
+        <div className="modal-backdrop" onMouseDown={() => { if (!creating) setShow(false); }}>
           <section
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-labelledby="new-cafe-title"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <h2>Nouveau café</h2>
+            <h2 id="new-cafe-title">Nouveau café</h2>
             <p className="muted">
               L’établissement restera privé jusqu’à sa publication.
             </p>
-            <form onSubmit={create} className="form-grid">
+            <form onSubmit={create} className="form-grid" aria-busy={creating}>
               <label>
                 Nom
                 <input
                   required
+                  disabled={creating}
                   value={form.name}
                   onChange={(e) =>
                     setForm({
@@ -259,6 +289,7 @@ export function AdminDashboard() {
                 Adresse publique
                 <input
                   required
+                  disabled={creating}
                   value={form.slug}
                   onChange={(e) =>
                     setForm({ ...form, slug: normalizeSlug(e.target.value) })
@@ -270,6 +301,8 @@ export function AdminDashboard() {
                 Devise
                 <input
                   maxLength={3}
+                  required
+                  disabled={creating || !!sourceCafeId}
                   value={form.currency}
                   onChange={(e) =>
                     setForm({ ...form, currency: e.target.value.toUpperCase() })
@@ -279,21 +312,49 @@ export function AdminDashboard() {
               <label>
                 Fuseau horaire
                 <input
+                  disabled={creating}
                   value={form.timezone}
                   onChange={(e) =>
                     setForm({ ...form, timezone: e.target.value })
                   }
                 />
               </label>
+              <label className="span-2">
+                Menu de départ
+                <select
+                  value={sourceCafeId}
+                  disabled={creating}
+                  onChange={(e) => {
+                    const source = cafes.find((c) => c.id === e.target.value);
+                    setSourceCafeId(e.target.value);
+                    setCreateError("");
+                    if (source) setForm((current) => ({ ...current, currency: source.currency }));
+                  }}
+                >
+                  <option value="">Menu vide — ajouter mes produits moi-même</option>
+                  {menuSources.map((source) => (
+                    <option key={source.id} value={source.id}>Copier le menu de {source.name}</option>
+                  ))}
+                </select>
+                <small>
+                  Copiez les catégories, produits, descriptions, prix et images en une seule fois.
+                  Chaque café garde ensuite son propre menu : modifier la copie ne change jamais l’original.
+                  Les produits masqués ou indisponibles conservent leur état. Aucun menu n’est publié automatiquement.
+                </small>
+              </label>
+              {createError && <div className="alert error span-2" role="alert">{createError}</div>}
               <div className="modal-actions">
                 <button
                   type="button"
                   className="btn secondary"
+                  disabled={creating}
                   onClick={() => setShow(false)}
                 >
                   Annuler
                 </button>
-                <button className="btn primary">Créer le café</button>
+                <button className="btn primary" disabled={creating}>
+                  {creating ? "Création en cours…" : sourceCafeId ? "Créer et copier le menu" : "Créer le café"}
+                </button>
               </div>
             </form>
           </section>
