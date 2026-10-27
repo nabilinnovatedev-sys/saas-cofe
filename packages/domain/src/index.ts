@@ -118,6 +118,15 @@ export type PublicMenu = {
     accent_color: string;
     logo_url: string | null;
     template_id?: "grill" | "cafe" | "garden";
+    menu_background_color?: string | null;
+    menu_background_end?: string | null;
+    menu_animation?: "none" | "fade" | "rise" | "zoom";
+    intro_style?: "none" | "fade" | "pulse" | "curtain" | "card" | "rings";
+    intro_background_color?: string | null;
+    intro_text_color?: string | null;
+    intro_accent_color?: string | null;
+    intro_surface_color?: string | null;
+    intro_duration_ms?: number;
     hero_background_type?: "color" | "image";
     hero_background_color?: string;
     hero_background_url?: string | null;
@@ -136,3 +145,4 @@ export type CartLine = {
 };
 export const cartTotal = (lines: CartLine[]) =>
   lines.reduce((sum, l) => sum + l.product.price_minor * l.quantity, 0);
+export * from './loyalty.js';

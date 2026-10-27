@@ -16,6 +16,8 @@ const StaffWorkspace = lazy(() =>
 const Login = lazy(() =>
   import("./pages/Login").then((module) => ({ default: module.Login })),
 );
+const WhatsAppMessages = lazy(() => import("./pages/WhatsAppMessages"));
+const Loyalty = lazy(() => import("./pages/Loyalty"));
 const PublicCafe = lazy(() =>
   import("./pages/PublicCafe").then((module) => ({
     default: module.PublicCafe,
@@ -90,6 +92,14 @@ export function App() {
           }
         />
         <Route
+          path="/admin/whatsapp"
+          element={
+            <Protected roles={["platform_admin"]}>
+              <WhatsAppMessages />
+            </Protected>
+          }
+        />
+        <Route
           path="/admin/cafes/:cafeId/*"
           element={
             <Protected roles={["platform_admin"]}>
@@ -106,6 +116,7 @@ export function App() {
           }
         />
         <Route path="/suivi/:token" element={<Tracking />} />
+        <Route path="/fidelite/:slug" element={<Loyalty />} />
         <Route path="/:slug" element={<PublicCafe />} />
         <Route path="/" element={<Navigate to="/connexion" replace />} />
         <Route

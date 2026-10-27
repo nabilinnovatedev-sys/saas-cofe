@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Coffee,
   ExternalLink,
-  LayoutDashboard,
   LogOut,
   Plus,
   QrCode,
@@ -30,6 +29,8 @@ import { invoke, supabase } from "../lib/supabase";
 import { MenuDesigner } from "../components/MenuDesigner";
 import { ImageDropzone } from "../components/ImageDropzone";
 import { menuImage } from "../components/MenuCatalog";
+import { AdminShell as Shell } from "../components/AdminShell";
+import { LoyaltyAdmin, LoyaltyStaff } from "../components/LoyaltyAdmin";
 
 type Cafe = {
   id: string;
@@ -48,36 +49,6 @@ const statusCafe = {
   active: "Actif",
   suspended: "Suspendu",
 };
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="admin-shell">
-      <aside className="sidebar">
-        <Link to="/admin" className="side-brand">
-          <Coffee /> <span>Café Console</span>
-        </Link>
-        <nav>
-          <NavLink to="/admin">
-            <LayoutDashboard /> Cafés
-          </NavLink>
-          <Link to="/admin#commandes">
-            <Send /> Commandes
-          </Link>
-        </nav>
-        <button
-          className="sidebar-logout"
-          onClick={async () => {
-            await supabase.auth.signOut();
-            location.href = "/connexion";
-          }}
-        >
-          <LogOut /> Déconnexion
-        </button>
-      </aside>
-      <main className="admin-main">{children}</main>
-    </div>
-  );
-}
 
 export function AdminDashboard() {
   const [cafes, setCafes] = useState<Cafe[]>([]),
@@ -387,6 +358,7 @@ function CafeLayout() {
     ["menu", "Menu"],
     ["tables", "Tables & QR"],
     ["serveurs", "Serveurs"],
+    ["fidelite", "Fidélité"],
     ["commandes", "Commandes"],
     ["publication", "Publication"],
   ];
@@ -431,6 +403,7 @@ function CafeLayout() {
         <Route path="menu" element={<Menu cafe={cafe} showDesigner />} />
         <Route path="tables" element={<Tables cafe={cafe} />} />
         <Route path="serveurs" element={<Staff cafe={cafe} />} />
+        <Route path="fidelite" element={<LoyaltyAdmin key={cafe.id} cafe={cafe} />} />
         <Route path="commandes" element={<Orders cafe={cafe} />} />
         <Route path="publication" element={<Publication cafe={cafe} />} />
         <Route
@@ -502,6 +475,7 @@ export function StaffWorkspace() {
           canManageCategories={profile.can_manage_categories}
           canManageProducts={profile.can_manage_products}
         />
+        <section className="content-panel"><LoyaltyStaff cafeId={cafe.id} /></section>
       </main>
     </div>
   );

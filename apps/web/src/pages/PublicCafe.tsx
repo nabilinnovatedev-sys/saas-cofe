@@ -79,7 +79,7 @@ export function PublicCafe() {
           supabase
             .from("cafe_branding")
             .select(
-              "description,primary_color,secondary_color,accent_color,logo_path,hero_background_type,hero_background_color,hero_background_path,logo_position,template_id",
+              "*",
             )
             .eq("cafe_id", previewCafeId)
             .maybeSingle(),
@@ -125,6 +125,15 @@ export function PublicCafe() {
             accent_color: branding?.accent_color || "#D98C32",
             logo_url: branding?.logo_path || null,
             template_id: branding?.template_id || "cafe",
+            menu_background_color: branding?.menu_background_color,
+            menu_background_end: branding?.menu_background_end,
+            menu_animation: branding?.menu_animation,
+            intro_style: branding?.intro_style,
+            intro_background_color: branding?.intro_background_color,
+            intro_text_color: branding?.intro_text_color,
+            intro_accent_color: branding?.intro_accent_color,
+            intro_surface_color: branding?.intro_surface_color,
+            intro_duration_ms: branding?.intro_duration_ms,
             hero_background_type: branding?.hero_background_type || "color",
             hero_background_color:
               branding?.hero_background_color || "#F3E7D7",
@@ -309,7 +318,7 @@ export function PublicCafe() {
           version.
         </div>
       )}
-      <MenuCatalog menu={menu} onAdd={isPreview ? undefined : add} />
+      <MenuCatalog key={menu.cafe.id} menu={menu} fullScreenIntro onAdd={isPreview ? undefined : add} />
       {!isPreview && (menu.cafe.delivery_enabled || fulfillment === 'delivery') && <div className="delivery-banner" role="status">{menu.cafe.delivery_enabled ? 'Livraison disponible · choisissez Livraison dans votre panier.' : 'La livraison est actuellement indisponible pour ce café.'}</div>}
       {!isPreview && count > 0 && (
         <button className="cart-dock" onClick={() => setOpen(true)}>

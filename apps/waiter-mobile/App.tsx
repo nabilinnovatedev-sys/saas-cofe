@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoyaltyScreen } from './Loyalty';
 import {
   ActivityIndicator,
   Alert,
@@ -235,7 +236,7 @@ function Login() {
 function Waiter({ session }: { session: Session }) {
   const [profile, setProfile] = useState<any>(null),
     [orders, setOrders] = useState<Order[]>([]),
-    [tab, setTab] = useState<"active" | "history" | "account">("active"),
+    [tab, setTab] = useState<"active" | "history" | "loyalty" | "account">("active"),
     [selected, setSelected] = useState<Order | null>(null),
     [loading, setLoading] = useState(true),
     [offline, setOffline] = useState(false),
@@ -413,7 +414,9 @@ function Waiter({ session }: { session: Session }) {
         </Pressable>
       ) : null}
       <View style={s.content}>
-        {tab === "account" ? (
+        {tab === "loyalty" ? (
+          <LoyaltyScreen cafeId={profile.cafe_id} offline={offline} />
+        ) : tab === "account" ? (
           <Account
             profile={profile}
             permission={permission}
@@ -467,6 +470,7 @@ function Waiter({ session }: { session: Session }) {
         {[
           ["active", "▦", "Actives"],
           ["history", "◷", "Historique"],
+          ["loyalty", "☆", "Fidélité"],
           ["account", "♙", "Compte"],
         ].map(([key, icon, label]) => (
           <Pressable

@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Check, Smartphone, Save } from 'lucide-react';
-import { normalizeSlug, type PublicMenu } from '@cafe/domain';
+import { accessibleBrandColor, normalizeSlug, type PublicMenu } from '@cafe/domain';
 import { supabase } from '../lib/supabase';
 import { defaultCover, menuTemplates, type TemplateId } from '../lib/menu-templates';
 import { ImageDropzone } from './ImageDropzone';
 import { MenuCatalog, menuImage } from './MenuCatalog';
 import './menu-designer.css';
+import { effectDefaults, introPalette, menuEffects, type MenuEffects } from '../lib/menu-effects';
 
 type Cafe = { id: string; name: string; slug: string; currency: string; contact_phone?: string | null; contact_address?: string | null };
-type Branding = {
+type Branding = MenuEffects & {
   template_id: TemplateId; primary_color: string; secondary_color: string; accent_color: string;
   hero_background_type: 'color' | 'image'; hero_background_color: string; hero_background_path: string | null;
   logo_position: 'top' | 'center' | 'overlap'; logo_path: string | null; description: string;
 };
 const defaults: Branding = {
+  ...effectDefaults,
   template_id: 'cafe', primary_color: '#8B5E3C', secondary_color: '#557A64', accent_color: '#D98C32',
   hero_background_type: 'color', hero_background_color: '#F3E7D7', hero_background_path: null,
   logo_position: 'overlap', logo_path: null, description: '',
@@ -38,6 +40,11 @@ export function MenuDesigner({ cafe }: { cafe: Cafe }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [replay, setReplay] = useState(0);
+  const phoneScreen = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    phoneScreen.current?.scrollTo({ top: 0, behavior: 'instant' });
+  }, [replay, brand.intro_style, brand.intro_duration_ms]);
   const uploadLock = useRef(false);
   useEffect(() => {
     let cancelled = false;
@@ -50,7 +57,7 @@ export function MenuDesigner({ cafe }: { cafe: Cafe }) {
         ]);
         if (b.error || c.error || p.error) throw b.error || c.error || p.error;
         if (cancelled) return;
-        if (b.data) setBrand(Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key, b.data[key] ?? fallback])) as Branding);
+        if (b.data) setBrand({ ...Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key, b.data[key] ?? fallback])), ...menuEffects(b.data) } as Branding);
         setCategories((c.data || []).map(category => ({ id: category.id, name: category.name, image_url: category.image_path, sort_order: category.sort_order,
           products: (p.data || []).filter(product => product.category_id === category.id).map(product => ({ ...product, photo_url: product.photo_path })),
         })));
@@ -90,18 +97,25 @@ export function MenuDesigner({ cafe }: { cafe: Cafe }) {
     setSaving(true); setError(''); setMessage('');
     try {
       if (brand.hero_background_type === 'image' && !brand.hero_background_path) throw new Error('Choisissez une image de couverture.');
+      // Check the deployment prerequisite before mutating either table.
+      const schema = await supabase.from('cafe_branding').select('menu_animation,intro_background_color').eq('cafe_id', cafe.id).maybeSingle();
+      if (schema.error) throw schema.error;
       const a = await supabase.from('cafes').update({ ...identity, slug: normalizeSlug(identity.slug) }).eq('id', cafe.id);
       if (a.error) throw a.error;
       const b = await supabase.from('cafe_branding').upsert({ ...brand, cafe_id: cafe.id });
       if (b.error) throw b.error;
       setDirty(false); setMessage('Design enregistré. Publiez le café pour le rendre visible aux clients.');
-    } catch (e) { setError((e as Error).message || 'Enregistrement impossible.'); }
+    } catch (e) {
+      const detail = (e as Error).message || 'Enregistrement impossible.';
+      setError(/schema cache|column.*does not exist/i.test(detail) ? 'Appliquez les migrations 202610260001_menu_effects.sql et 202610260002_intro_variants_colors.sql à Supabase avant d’enregistrer ces options.' : detail);
+    }
     finally { setSaving(false); }
   }
   const preview: PublicMenu = {
     cafe: { ...identity, ...brand, id: cafe.id, currency: cafe.currency, logo_url: brand.logo_path, hero_background_url: brand.hero_background_path },
     categories: categories.length ? categories : demoCategories, table: { valid: false, id: null, label: null },
   };
+  const palette = introPalette(brand, accessibleBrandColor(brand.primary_color));
   if (loading) return <div className="state-card">Chargement de votre studio…</div>;
   if (loadError) return <div className="alert error" role="alert">{loadError} Rechargez la page pour réessayer.</div>;
   return <section className="menu-studio">
@@ -129,17 +143,54 @@ export function MenuDesigner({ cafe }: { cafe: Cafe }) {
           <legend>02 · Couverture & couleurs</legend>
           <div className="studio-segment"><button type="button" aria-pressed={brand.hero_background_type === 'color'} onClick={() => change({ hero_background_type: 'color' })}>Couleur unie</button><button type="button" aria-pressed={brand.hero_background_type === 'image'} onClick={() => change({ hero_background_type: 'image' })}>Image</button></div>
           {brand.hero_background_type === 'image' && <ImageDropzone label="Image de couverture" value={menuImage(brand.hero_background_path)} maxMB={2} disabled={uploading || saving} onFile={file => upload('hero_background_path', file)} />}
-          <div className="studio-colors">{([['hero_background_color', 'Fond'], ['primary_color', 'Principale'], ['secondary_color', 'Panier'], ['accent_color', 'Accent']] as const).map(([key, label]) => <label key={key}>{label}<input type="color" value={brand[key]} onChange={e => change({ [key]: e.target.value })} /><small>{brand[key]}</small></label>)}</div>
+          <div className="studio-colors">{([['hero_background_color', 'Couverture'], ['primary_color', 'Principale'], ['secondary_color', 'Panier'], ['accent_color', 'Accent']] as const).map(([key, label]) => <label key={key}>{label}<input type="color" value={brand[key]} onChange={e => change({ [key]: e.target.value })} /><small>{brand[key]}</small></label>)}</div>
         </fieldset>
-        <fieldset disabled={saving}><legend>03 · Contact</legend>{(['contact_phone', 'contact_address'] as const).map(key => <label key={key}>{key === 'contact_phone' ? 'Téléphone' : 'Adresse'}<input value={identity[key]} onChange={e => { setIdentity({ ...identity, [key]: e.target.value }); setDirty(true); }} /></label>)}</fieldset>
+        <fieldset disabled={saving || uploading}>
+          <legend>03 · Fond du menu & animations</legend>
+          <label>Style du fond<select value={!brand.menu_background_color ? 'template' : brand.menu_background_end ? 'gradient' : 'solid'} onChange={e => change({
+            menu_background_color: e.target.value === 'template' ? null : brand.menu_background_color || '#FFFFFF',
+            menu_background_end: e.target.value === 'gradient' ? brand.menu_background_end || '#F3E7D7' : null,
+          })}><option value="template">Fond du template</option><option value="solid">Couleur personnalisée</option><option value="gradient">Dégradé de deux couleurs</option></select></label>
+          {brand.menu_background_color && <div className="studio-colors">
+            <label>Fond du menu<input type="color" value={brand.menu_background_color} onInput={e => change({ menu_background_color: e.currentTarget.value })} onChange={e => change({ menu_background_color: e.target.value })} /></label>
+            {brand.menu_background_end && <label>Fin du dégradé<input type="color" value={brand.menu_background_end} onInput={e => change({ menu_background_end: e.currentTarget.value })} onChange={e => change({ menu_background_end: e.target.value })} /></label>}
+          </div>}
+          <label>Animation des catégories et produits<select value={brand.menu_animation} onChange={e => { change({ menu_animation: e.target.value as Branding['menu_animation'] }); setReplay(r => r + 1); }}>
+            <option value="none">Aucune</option><option value="fade">Apparition douce</option><option value="rise">Glissement vers le haut</option><option value="zoom">Zoom léger</option>
+          </select></label>
+          <p className="studio-effects-help">Le fond du menu est indépendant de la couverture. Les cartes restent lisibles, même avec un fond sombre.</p>
+        </fieldset>
+        <fieldset disabled={saving || uploading}>
+          <legend>04 · Intro de bienvenue</legend>
+          <label>Style de l’intro<select value={brand.intro_style} onChange={e => change({ intro_style: e.target.value as Branding['intro_style'] })}>
+            <option value="none">Sans intro</option><option value="fade">Logo · Apparition élégante</option><option value="pulse">Logo · Pulsation</option><option value="curtain">Rideau · Révélation du menu</option>
+            <option value="card">Carte · Invitation du café</option><option value="rings">Cercles · Ouverture immersive</option>
+          </select></label>
+          {brand.intro_style !== 'none' && <label>Durée de l’intro<select value={brand.intro_duration_ms} onChange={e => change({ intro_duration_ms: Number(e.target.value) })}>
+            <option value={1000}>1 seconde</option><option value={1800}>1,8 seconde</option><option value={2500}>2,5 secondes</option><option value={4000}>4 secondes</option>
+          </select></label>}
+          {brand.intro_style !== 'none' && <>
+            <div className="studio-colors">{([
+              ['intro_background_color', 'Fond de l’intro', palette.background],
+              ['intro_text_color', 'Texte de l’intro', palette.text],
+              ['intro_accent_color', 'Effets et bordures', palette.accent],
+              ['intro_surface_color', 'Carte, logo et bouton', palette.surface],
+            ] as const).map(([key, label, value]) => <label key={key}>{label}<input type="color" value={value}
+              onInput={e => change({ [key]: e.currentTarget.value })} onChange={e => change({ [key]: e.target.value })} /><small>{value}</small></label>)}</div>
+            <button type="button" className="btn secondary" onClick={() => change({ intro_background_color: null, intro_text_color: null, intro_accent_color: null, intro_surface_color: null })}>Rétablir les couleurs automatiques</button>
+          </>}
+          <p className="studio-effects-help">Personnalisez les couleurs indépendamment du menu. Vérifiez le contraste du texte dans l’aperçu. Sans logo, une icône café apparaît. L’intro peut être passée et n’est pas rejouée au changement de catégorie. Les animations sont désactivées si le client préfère réduire les mouvements.</p>
+        </fieldset>
+        <fieldset disabled={saving}><legend>05 · Contact</legend>{(['contact_phone', 'contact_address'] as const).map(key => <label key={key}>{key === 'contact_phone' ? 'Téléphone' : 'Adresse'}<input value={identity[key]} onChange={e => { setIdentity({ ...identity, [key]: e.target.value }); setDirty(true); }} /></label>)}</fieldset>
         {error && <div role="alert" className="alert error">{error}</div>}{message && <div role="status" className="alert info">{message}</div>}
         <div className="studio-save"><small>{uploading ? 'Envoi de l’image…' : dirty ? 'Modifications non enregistrées' : 'Personnalisez votre menu'}</small><button className="btn primary" disabled={saving || uploading}><Save size={18} />{saving ? 'Enregistrement…' : 'Enregistrer le design'}</button></div>
       </form>
       <aside className="studio-preview">
         <div className="phone-caption"><Smartphone size={18} /><strong>Vue téléphone</strong><span>375 px</span></div>
-        <div className="phone-frame"><div className="phone-status"><span>9:41</span><i /><span>▮▮▮ ▰</span></div><div className="phone-screen">
-          <MenuCatalog menu={preview} onImageDrop={(field, file) => { void upload(field, file).catch(e => setError(e.message)); }} />
+        <div className="phone-frame"><div className="phone-status"><span>9:41</span><i /><span>▮▮▮ ▰</span></div><div className="phone-screen" ref={phoneScreen}>
+          <MenuCatalog key={`${cafe.id}-${replay}-${brand.intro_style}-${brand.intro_duration_ms}`} menu={preview} onImageDrop={(field, file) => { void upload(field, file).catch(e => setError(e.message)); }} />
         </div><div className="phone-bottom"><i /></div></div>
+        <button type="button" className="btn secondary studio-replay" onClick={() => setReplay(r => r + 1)}>Rejouer l’aperçu & l’intro</button>
         <p>Cliquez sur les catégories pour explorer. Glissez vos images sur la couverture ou le logo.</p>
         {!categories.length && <p className="demo-notice">Contenu de démonstration uniquement. Ajoutez vos catégories et produits dans l’onglet Menu.</p>}
       </aside>

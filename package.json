@@ -17,7 +17,8 @@
     "dev:mobile": "npm run start -w @cafe/waiter-mobile",
     "build": "npm run build -w @cafe/domain && npm run build -w @cafe/web",
     "typecheck": "npm run build -w @cafe/domain && npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w @cafe/domain",
+    "test": "npm run test -w @cafe/domain && npm run test -w @cafe/web && npm run test:loyalty-db",
+    "test:loyalty-db": "node --test supabase/tests/loyalty.test.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "check": "npm run typecheck && npm test && npm run build"
   },
@@ -27,5 +28,8 @@
   "overrides": {
     "react": "19.3.0",
     "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.12"
   }
 }
