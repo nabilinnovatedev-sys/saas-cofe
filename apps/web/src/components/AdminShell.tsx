@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Coffee, LayoutDashboard, LogOut, MessageCircle, Send } from "lucide-react";
+import { Coffee, Instagram, LayoutDashboard, LogOut, MessageCircle, Send } from "lucide-react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import "./admin-shell.css";
@@ -16,6 +16,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </Link>
           <Link to="/admin#commandes"><Send /> Commandes</Link>
           <NavLink to="/admin/whatsapp"><MessageCircle /> WhatsApp</NavLink>
+          <NavLink to="/admin/instagram"><Instagram /> Instagram</NavLink>
         </nav>
         <button className="sidebar-logout" onClick={async () => {
           await supabase.auth.signOut();

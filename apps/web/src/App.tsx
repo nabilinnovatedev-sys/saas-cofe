@@ -17,6 +17,7 @@ const Login = lazy(() =>
   import("./pages/Login").then((module) => ({ default: module.Login })),
 );
 const WhatsAppMessages = lazy(() => import("./pages/WhatsAppMessages"));
+const InstagramMessages = lazy(() => import("./pages/InstagramMessages"));
 const Loyalty = lazy(() => import("./pages/Loyalty"));
 const PublicCafe = lazy(() =>
   import("./pages/PublicCafe").then((module) => ({
@@ -96,6 +97,14 @@ export function App() {
           element={
             <Protected roles={["platform_admin"]}>
               <WhatsAppMessages />
+            </Protected>
+          }
+        />
+        <Route
+          path="/admin/instagram"
+          element={
+            <Protected roles={["platform_admin"]}>
+              <InstagramMessages />
             </Protected>
           }
         />

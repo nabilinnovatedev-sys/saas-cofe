@@ -1,0 +1,7 @@
+.ig-page .wa-privacy { background: #f7eefa; color: #7a2e78; }
+.ig-page .wa-dropzone.is-dragging { background: #f9eff8; border-color: #b44691; }
+.ig-page .wa-dropzone svg, .ig-page .wa-empty svg { color: #a33a87; }
+.ig-page .wa-progress progress { accent-color: #a33a87; }
+.ig-page .btn.primary { background: #8f347d; }
+.ig-page .btn.primary:hover:not(:disabled) { background: #742868; }
+.ig-message-label { margin-top: 18px; }
